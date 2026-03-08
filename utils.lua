@@ -159,6 +159,11 @@ utils.GetReactionColor = function(unitstr)
 end
 
 utils.GetUnitColor = function(unitstr)
+	-- v3.2.1: Test Overlay override (check prefix, not state — handles post-disable frames)
+	if unitstr and string.find(unitstr, "CURSIVE_TEST_", 1, true) then
+		return "FFC80000", 0.78, 0, 0, 1
+	end
+
 	local r, g, b = .8, .8, .8
 
 	if UnitIsPlayer(unitstr) then

@@ -3,12 +3,37 @@ if not Cursive.superwow then
 end
 local L = AceLibrary("AceLocale-2.2"):new("Cursive")
 
+-- Local-cache frequently used globals
+local GetTime = GetTime
+local UnitExists = UnitExists
+local UnitDebuff = UnitDebuff
+local UnitBuff = UnitBuff
+local UnitName = UnitName
+local UnitClass = UnitClass
+local UnitResistance = UnitResistance
+local pairs = pairs
+local floor = math.floor
+
+-- Test Overlay: skip real API calls for fake GUIDs
+local TEST_PREFIX = "CURSIVE_TEST_"
+local function IsTestGuid(guid)
+    if not guid then return false end
+    return string.find(guid, TEST_PREFIX, 1, true) == 1
+end
+local ceil = math.ceil
+local strfind = string.find
+local strlower = string.lower
+local strformat = string.format
+
 local _, playerClassName = UnitClass("player")
 
 local curses = {
 	trackedCurseIds = {},
 	trackedCurseNamesToTextures = {},
 	trackedCurseNameRanksToSpellSlots = {},
+	-- v3.2: Track player's own shared debuff casts for border color detection
+	-- Format: playerOwnedCasts[targetGuid][debuffKey] = timestamp
+	playerOwnedCasts = {},
 	conflagrateSpellIds = {
 		[17962] = true,
 		[18930] = true,
@@ -33,12 +58,18 @@ local curses = {
 	lastFerociousBiteTargetGuid = 0,
 	lastMoltenBlastTargetGuid = 0,
 
-	sharedDebuffs = {
-		faeriefire = {},
-	},
-	sharedDebuffGuids = {
-		faeriefire = {}, -- used for scanning for shared debuffs like faerie fire
-	}, -- used for scanning for shared debuffs like faerie fire
+	sharedDebuffs = {},      -- populated by LoadCurses() from shared_debuffs.lua
+	sharedDebuffGuids = {},  -- populated by LoadCurses(), tracks active debuffs per target
+	sharedDebuffMeta = {},   -- populated by LoadCurses(), metadata (category, stacks, isProc, etc.)
+	-- Reverse lookup: spellID -> debuffKey (built in LoadCurses for fast event handling)
+	sharedDebuffSpellLookup = {},
+	-- Reverse lookup: trigger spellID -> debuffKey (for proc-based debuffs)
+	sharedDebuffTriggerLookup = {},
+	-- v3.2.1: Proc refresh tracking
+	-- procExpected[targetGuid][debuffKey] = timestamp — set when trigger spell cast detected
+	procExpected = {},
+	-- lastProcStacks[targetGuid][debuffKey] = stackCount — for stack-change detection
+	lastProcStacks = {},
 
 	-- Whitelist of mobs that can bleed (for rake tracking at client debuff cap)
 	mobsThatBleed = {
@@ -83,6 +114,7 @@ local BLEED_IMMUNE_TYPES = {
 
 -- Check if a unit can receive bleed effects
 local function CanApplyBleed(guid)
+	if IsTestGuid(guid) then return true end
 	if not UnitExists(guid) then
 		return true -- Can't check, assume can bleed
 	end
@@ -152,8 +184,73 @@ function curses:LoadCurses()
 		curses.trackedCurseIds = getWarriorSpells()
 	end
 
-	-- load shared debuffs
-	curses.sharedDebuffs = getSharedDebuffs()
+	-- load shared debuffs (v3.2: full metadata structure)
+	local sharedDebuffData = getSharedDebuffs()
+	curses.sharedDebuffs = {}
+	curses.sharedDebuffGuids = {}
+	curses.sharedDebuffMeta = {}
+	curses.sharedDebuffSpellLookup = {}
+	curses.sharedDebuffTriggerLookup = {}
+
+	-- v3.2.1: Target Armor cache — stores live + total (highest seen) armor per GUID
+	curses.armorCache = {}  -- guid -> { live = number, total = number }
+
+	-- v3.2: Expose Armor — armor reduction per combo point, per rank (TurtleWoW values)
+	-- aDF-style: track frame-by-frame armor changes to detect exact EA reduction
+	curses.exposeArmorPerCP = {
+		[8647]  = 80,   -- Rank 1: 80 armor per CP
+		[8649]  = 145,  -- Rank 2: 145 armor per CP
+		[8650]  = 210,  -- Rank 3: 210 armor per CP
+		[11197] = 275,  -- Rank 4: 275 armor per CP
+		[11198] = 340,  -- Rank 5: 340 armor per CP
+	}
+	curses.exposeArmorTalentMults = { 1.00, 1.25, 1.50 } -- 0/1/2 talent points
+	-- Armor monitor state per target
+	curses.armorMonitor = {} -- targetGuid -> { prevArmor, baseArmor, expectingEA, eaSpellID, monitorUntil }
+
+	for debuffKey, data in pairs(sharedDebuffData) do
+		-- Build flat spell lookup (backward compatible: curses.sharedDebuffs.faeriefire[spellID])
+		curses.sharedDebuffs[debuffKey] = {}
+		if data.spells then
+			for spellID, spellData in pairs(data.spells) do
+				curses.sharedDebuffs[debuffKey][spellID] = spellData
+				-- Reverse lookup: spellID -> debuffKey
+				curses.sharedDebuffSpellLookup[spellID] = debuffKey
+			end
+		end
+
+		-- Initialize guid tracking table
+		curses.sharedDebuffGuids[debuffKey] = {}
+
+		-- Store metadata
+		curses.sharedDebuffMeta[debuffKey] = {
+			category = data.category,
+			class = data.class,
+			raidRelevant = data.raidRelevant,
+			stacks = data.stacks,
+			isProc = data.isProc,
+			triggerSpells = data.triggerSpells,
+			displayStacks = data.displayStacks,
+			exclusiveWith = data.exclusiveWith,
+		}
+
+		-- Build trigger spell reverse lookup for proc-based debuffs
+		if data.isProc and data.triggerSpells then
+			for _, triggerID in ipairs(data.triggerSpells) do
+				curses.sharedDebuffTriggerLookup[triggerID] = debuffKey
+			end
+		end
+
+		-- Initialize default setting if not set
+		if Cursive.db.profile.shareddebuffs[debuffKey] == nil then
+			-- Raid-relevant debuffs default to ON for existing faeriefire users
+			if debuffKey == "faeriefire" then
+				-- keep existing setting
+			else
+				Cursive.db.profile.shareddebuffs[debuffKey] = false
+			end
+		end
+	end
 
 	-- go through spell slots and
 	local i = 1
@@ -167,7 +264,7 @@ function curses:LoadCurses()
 			spellrank = L["Rank 1"]
 		end
 
-		curses.trackedCurseNameRanksToSpellSlots[string.lower(spellname) .. spellrank] = i
+		curses.trackedCurseNameRanksToSpellSlots[strlower(spellname) .. spellrank] = i
 		i = i + 1
 	end
 
@@ -220,7 +317,7 @@ function curses:CheckEyeOfDormantCorruption()
 	for slot = 13, 14 do
 		local link = GetInventoryItemLink("player", slot)
 		if link then
-			local _, _, itemId = string.find(link, "item:(%d+)")
+			local _, _, itemId = strfind(link, "item:(%d+)")
 			if itemId and tonumber(itemId) == trinketItemId then
 				curses.hasEyeOfDormantCorruption = true
 				return
@@ -245,7 +342,7 @@ function curses:ScanTooltipForDuration(curseSpellID)
 			-- get the last line
 			local text = getglobal("CursiveTooltipScan" .. "TextLeft" .. numLines):GetText()
 			if text then
-				local _, _, duration = string.find(text, L["curse_duration_format"])
+				local _, _, duration = strfind(text, L["curse_duration_format"])
 				if duration then
 					return tonumber(duration)
 				end
@@ -291,6 +388,7 @@ function curses:GetCurseDuration(curseSpellID)
 end
 
 function curses:ScanGuidForCurse(guid, curseSpellID)
+	if IsTestGuid(guid) then return false end
 	for i = 1, 64 do
 		local _, _, _, spellID = UnitDebuff(guid, i)
 		if spellID then
@@ -316,19 +414,454 @@ function curses:ScanGuidForCurse(guid, curseSpellID)
 end
 
 function curses:GetLowercaseSpellName(spellName)
-	spellName = string.lower(spellName)
+	spellName = strlower(spellName)
 
 	-- handle faerie fire special case
-	if curses.isDruid and string.find(spellName, L["faerie fire"]) then
+	if curses.isDruid and strfind(spellName, L["faerie fire"]) then
 		return L["faerie fire"]
 	end
 
 	return spellName
 end
 
+-- v3.2: Scan target debuffs for proc-based shared debuffs (ISB, Fire Vuln, etc.)
+-- Called via ScheduleEvent after a trigger spell is cast
+function curses.ScanForProcDebuff(self, debuffKey, targetGuid)
+	if not curses.sharedDebuffs[debuffKey] then return end
+	if not UnitExists(targetGuid) then return end
+
+	local debuffSpells = curses.sharedDebuffs[debuffKey]
+	for i = 1, 64 do
+		local texture, stackCount, _, spellID = UnitDebuff(targetGuid, i)
+		if not spellID then break end
+		if debuffSpells[spellID] then
+			local procSpellData = debuffSpells[spellID]
+			-- v3.2.1 FIX: If already tracked in guids, only refresh timer when evidence exists
+			-- Previously this was unconditional — caused phantom timer resets on every Shadow Bolt
+			if procSpellData and curses.guids[targetGuid] and curses.guids[targetGuid][procSpellData.name] then
+				local existing = curses.guids[targetGuid][procSpellData.name]
+				existing.sharedTexture = texture
+				local newStacks = stackCount or 0
+				local meta = curses.sharedDebuffMeta[debuffKey]
+
+				-- Check for actual evidence of refresh (same logic as ScanTargetForSharedDebuffs)
+				local oldStacks = curses.lastProcStacks[targetGuid] and curses.lastProcStacks[targetGuid][debuffKey] or -1
+				local stackChanged = (newStacks ~= oldStacks and oldStacks ~= -1)
+				local isNewDebuff = (oldStacks == -1)
+				local noTrigger = meta and (not meta.triggerSpells or table.getn(meta.triggerSpells) == 0)
+				local elapsed = GetTime() - existing.start
+				local halfDuration = (procSpellData.duration or 10) * 0.5
+				local shouldRefresh = stackChanged or isNewDebuff or noTrigger or (elapsed > halfDuration)
+
+				if shouldRefresh then
+					existing.start = GetTime()
+					existing.duration = procSpellData.duration
+					existing.sharedStacks = newStacks
+					if CursiveSVDebug then
+						DEFAULT_CHAT_FRAME:AddMessage("|cFFFFFF00[SV] ScanProc REFRESH: "..tostring(procSpellData.name).." elapsed="..string.format("%.1f", elapsed).." stacks "..tostring(oldStacks).."->"..tostring(newStacks).."|r")
+					end
+				else
+					-- No evidence of refresh — update stacks/texture only, keep timer
+					existing.sharedStacks = newStacks
+					if CursiveSVDebug then
+						DEFAULT_CHAT_FRAME:AddMessage("|cFF888888[SV] ScanProc SKIP refresh: "..tostring(procSpellData.name).." elapsed="..string.format("%.1f", elapsed).." (< halfDur)|r")
+					end
+				end
+
+				-- Track stacks for next comparison
+				if not curses.lastProcStacks[targetGuid] then
+					curses.lastProcStacks[targetGuid] = {}
+				end
+				curses.lastProcStacks[targetGuid][debuffKey] = newStacks
+				return
+			end
+			-- No existing entry — queue for initial apply
+			curses.sharedDebuffGuids[debuffKey][targetGuid] = {
+				time = GetTime(),
+				texture = texture,
+				stacks = stackCount or 0,
+				spellID = spellID,
+			}
+			-- v3.2.1 FIX: Ensure target is in core.guids for rendering
+			Cursive.core.addGuid(targetGuid)
+			if CursiveSVDebug then
+				DEFAULT_CHAT_FRAME:AddMessage("|cFF00FF00[SV] ScanProc NEW: "..tostring(procSpellData and procSpellData.name).." queued|r")
+			end
+			return
+		end
+	end
+end
+
+-- v3.2.1: OnUpdate poller for Expose Armor — polls armor every frame after EA cast
+-- This is more reliable than waiting for UNIT_AURA since armor changes may arrive late
+if not CursiveEAPollerFrame then
+	CursiveEAPollerFrame = CreateFrame("Frame")
+	CursiveEAPollerFrame:Hide()
+	CursiveEAPollerFrame:SetScript("OnUpdate", function()
+		local now = GetTime()
+		for targetGuid, mon in pairs(Cursive.curses.armorMonitor) do
+			if mon.expectingEA and now <= mon.monitorUntil then
+				-- SuperWoW: no need to check current target, GUID works directly
+				Cursive.curses:CheckArmorChangeForEA(targetGuid)
+			elseif mon.expectingEA and now > mon.monitorUntil then
+				mon.expectingEA = false
+				if CursiveEADebug then
+					DEFAULT_CHAT_FRAME:AddMessage("|cFFFF8800[EA Poll] Monitor expired for "..targetGuid.."|r")
+				end
+			end
+		end
+		-- Hide poller if no active monitors
+		local anyActive = false
+		for _, mon in pairs(Cursive.curses.armorMonitor) do
+			if mon.expectingEA then
+				anyActive = true
+				break
+			end
+		end
+		if not anyActive then
+			CursiveEAPollerFrame:Hide()
+		end
+	end)
+end
+
+function curses:StartEAPoller()
+	CursiveEAPollerFrame:Show()
+end
+
+-- v3.2: Check armor changes on target to detect Expose Armor CP (aDF-style)
+-- Called from OnUpdate poller and UNIT_AURA
+-- NOTE: UnitResistance() only accepts unit tokens ("target"), NOT GUIDs!
+function curses:CheckArmorChangeForEA(targetGuid)
+	local mon = curses.armorMonitor[targetGuid]
+	if not mon or not mon.expectingEA then return end
+
+	-- Check if monitor expired
+	if GetTime() > mon.monitorUntil then
+		mon.expectingEA = false
+		return
+	end
+
+	-- SuperWoW: UnitResistance accepts GUIDs directly — no need to be targeting
+	local armorNow = UnitResistance(targetGuid, 0) or 0
+
+	-- Use baseArmor (armor without EA) for calculation, fall back to prevArmor
+	local refArmor = mon.baseArmor or mon.prevArmor
+	local armorDrop = refArmor - armorNow -- total EA reduction from base
+
+	-- Debug output
+	if CursiveEADebug then
+		DEFAULT_CHAT_FRAME:AddMessage("|cFFFFFF00[EA] base="..tostring(mon.baseArmor).." prev="..mon.prevArmor.." now="..armorNow.." drop="..armorDrop.." spellID="..tostring(mon.eaSpellID).."|r")
+	end
+
+	-- Only process if armor actually decreased from base
+	if armorDrop <= 0 then
+		-- Armor didn't drop (yet) — could be other changes, keep monitoring
+		if CursiveEADebug then
+			DEFAULT_CHAT_FRAME:AddMessage("|cFFFF8800[EA] No drop yet, keep monitoring|r")
+		end
+		return
+	end
+
+	local basePerCP = curses.exposeArmorPerCP[mon.eaSpellID] or 340
+	local comboPoints = 0
+	local bestError = 999
+
+	-- Try all talent multipliers (x1.00, x1.25, x1.50) and find cleanest CP fit
+	for _, mult in ipairs(curses.exposeArmorTalentMults) do
+		local perCP = basePerCP * mult
+		local rawCP = armorDrop / perCP
+		local roundedCP = floor(rawCP + 0.5)
+		if CursiveEADebug then
+			DEFAULT_CHAT_FRAME:AddMessage("|cFF888888[EA] mult="..mult.." perCP="..perCP.." raw="..strformat("%.2f", rawCP).." round="..roundedCP.."|r")
+		end
+		if roundedCP >= 1 and roundedCP <= 5 then
+			local err = math.abs(rawCP - roundedCP)
+			if err < bestError then
+				bestError = err
+				comboPoints = roundedCP
+			end
+		end
+	end
+
+	if CursiveEADebug then
+		DEFAULT_CHAT_FRAME:AddMessage("|cFF00FF00[EA] RESULT: cp="..comboPoints.." err="..strformat("%.3f", bestError).."|r")
+	end
+
+	-- Accept result if close enough (tolerance: within 0.3 of a clean integer)
+	if comboPoints > 0 and bestError < 0.3 then
+		-- Ensure sharedDebuffGuids entry exists
+		if not curses.sharedDebuffGuids["exposearmor"] then
+			curses.sharedDebuffGuids["exposearmor"] = {}
+		end
+		local entry = curses.sharedDebuffGuids["exposearmor"][targetGuid]
+		if entry and type(entry) == "table" then
+			entry.stacks = comboPoints
+			entry.spellID = mon.eaSpellID
+			entry.time = GetTime()
+		else
+			-- Create entry if it doesn't exist yet (e.g. UNIT_AURA hasn't fired yet)
+			curses.sharedDebuffGuids["exposearmor"][targetGuid] = {
+				time = GetTime(),
+				texture = nil,
+				stacks = comboPoints,
+				spellID = mon.eaSpellID,
+			}
+		end
+		-- Also update if already in guids display table
+		local eaName = L["expose armor"]
+		if curses.guids[targetGuid] and curses.guids[targetGuid][eaName] then
+			curses.guids[targetGuid][eaName].sharedStacks = comboPoints
+			if CursiveEADebug then
+				DEFAULT_CHAT_FRAME:AddMessage("|cFF00FF00[EA] Set sharedStacks="..comboPoints.." on guids["..eaName.."]|r")
+			end
+		elseif CursiveEADebug then
+			-- Debug: show what keys exist for this target
+			local keys = ""
+			if curses.guids[targetGuid] then
+				for k, _ in pairs(curses.guids[targetGuid]) do
+					keys = keys .. tostring(k) .. ", "
+				end
+			end
+			DEFAULT_CHAT_FRAME:AddMessage("|cFFFF8800[EA] guids key '"..tostring(eaName).."' not found. Keys: "..keys.."|r")
+		end
+	end
+
+	-- Done monitoring — armor change detected and processed
+	mon.expectingEA = false
+	-- Update prevArmor for next time (aDF-style continuous tracking)
+	mon.prevArmor = armorNow
+end
+
+-- v3.2: Scan target for all enabled shared debuffs (reliable detection for procs + direct casts)
+-- Called on UNIT_AURA for target, and periodically via UI update
+function curses:ScanTargetForSharedDebuffs(targetGuid)
+	if not targetGuid then return end
+	if not UnitExists(targetGuid) then return end
+
+	local now = GetTime()
+	for debuffKey, debuffSpells in pairs(curses.sharedDebuffs) do
+		if Cursive.db.profile.shareddebuffs[debuffKey] then
+			local found = false
+			-- Scan all debuffs on the target
+			for i = 1, 64 do
+				local texture, stackCount, _, spellID = UnitDebuff(targetGuid, i)
+				if not spellID then break end
+				if debuffSpells[spellID] then
+					found = true
+					local spellData = debuffSpells[spellID]
+
+					-- v3.2.1 FIX: Check if this debuff is already applied in guids table
+					-- If yes, update texture/stacks and check for timer refresh (proc debuffs)
+					-- IMPORTANT: own curses (currentPlayer=true) have precise timing from ApplyCurse
+					-- and must NOT be overwritten by the shared debuff system
+					local alreadyApplied = false
+					if spellData and curses.guids[targetGuid] then
+						local name = spellData.name
+						local existing = curses.guids[targetGuid][name]
+						if existing then
+							alreadyApplied = true
+							if existing.currentPlayer == false then
+								-- Update live texture
+								existing.sharedTexture = texture
+								local meta = curses.sharedDebuffMeta[debuffKey]
+								local newStacks = stackCount or 0
+
+								-- v3.2.1 FIX: Detect proc debuff refresh
+								-- Only reset timer when we have EVIDENCE the debuff was actually refreshed:
+								-- 1. Stack count changed (e.g. SV 2→4 or 4→3)
+								-- 2. Debuff is new (first scan, oldStacks == -1)
+								-- 3. Weapon procs without triggerSpells (noTrigger)
+								-- NOTE: procExpected alone is NOT enough — Shadow Bolt casts set this flag
+								-- continuously but SV at max stacks does NOT refresh on every hit
+								if meta and meta.isProc then
+									local oldStacks = curses.lastProcStacks[targetGuid] and curses.lastProcStacks[targetGuid][debuffKey] or -1
+									local stackChanged = (newStacks ~= oldStacks and oldStacks ~= -1)
+									local isNewDebuff = (oldStacks == -1)
+
+									-- Consume procExpected flag if present (prevents stale flags)
+									local procTriggered = false
+									if curses.procExpected[targetGuid] and curses.procExpected[targetGuid][debuffKey] then
+										local triggerTime = curses.procExpected[targetGuid][debuffKey]
+										if (now - triggerTime) < 2.0 then
+											procTriggered = true
+										end
+										-- Always consume to prevent stale flags
+										curses.procExpected[targetGuid][debuffKey] = nil
+									end
+
+									-- v3.2.1: Weapon procs without triggerSpells (Thunderfury, Nightfall, Annihilator)
+								-- always refresh timer on scan since we can't track the trigger
+								local noTrigger = (not meta.triggerSpells or table.getn(meta.triggerSpells) == 0)
+
+								-- v3.2.1 FIX: Only reset timer on actual evidence of refresh
+								-- For stacking procs: stack count change is reliable signal
+								-- For non-stacking procs (SV): only refresh if debuff is new OR
+								-- enough of its duration has elapsed that a real refresh is plausible
+								-- (prevents timer reset from Shadow Bolt spam when SV is still fresh)
+								-- noTrigger: weapon procs always refresh (no other signal available)
+								local elapsed = now - existing.start
+								local halfDuration = (spellData.duration or 10) * 0.5
+								local procRefreshValid = procTriggered and (isNewDebuff or elapsed > halfDuration)
+
+								if stackChanged or noTrigger or procRefreshValid then
+										-- Debuff was refreshed → reset timer
+										existing.start = now
+										existing.duration = spellData.duration
+										-- v3.2.1: If OUR trigger spell caused this, mark as own debuff
+										-- Check playerOwnedCasts to distinguish own vs other player's procs
+										if procTriggered and curses.playerOwnedCasts[targetGuid] and curses.playerOwnedCasts[targetGuid][debuffKey] then
+											local ownCastTime = curses.playerOwnedCasts[targetGuid][debuffKey]
+											if (now - ownCastTime) < 2.0 then
+												existing.currentPlayer = true
+											end
+										end
+										if CursiveSVDebug then
+											DEFAULT_CHAT_FRAME:AddMessage("|cFFFFFF00[SV] REFRESH: "..tostring(name).." stacks "..tostring(oldStacks).."->"..tostring(newStacks).." procFlag="..tostring(procTriggered).." noTrig="..tostring(noTrigger).."|r")
+										end
+									end
+
+									-- Track stacks for next comparison
+									if not curses.lastProcStacks[targetGuid] then
+										curses.lastProcStacks[targetGuid] = {}
+									end
+									curses.lastProcStacks[targetGuid][debuffKey] = newStacks
+								end
+
+								-- Update stacks (except EA which uses armor-diff calculated CP)
+								if debuffKey ~= "exposearmor" then
+									existing.sharedStacks = newStacks
+								end
+							end
+						end
+					end
+
+					-- Only queue for initial apply if not already tracked
+					if not alreadyApplied then
+						if not curses.sharedDebuffGuids[debuffKey] then
+							curses.sharedDebuffGuids[debuffKey] = {}
+						end
+						curses.sharedDebuffGuids[debuffKey][targetGuid] = {
+							time = now,
+							texture = texture,
+							stacks = stackCount or 0,
+							spellID = spellID,
+						}
+					end
+					break
+				end
+			end
+			-- v3.2: If shared debuff was NOT found on target but was tracked, remove it
+			if not found and curses.sharedDebuffGuids[debuffKey] and curses.sharedDebuffGuids[debuffKey][targetGuid] then
+				-- v3.2.1: Don't remove EA tracking while armor monitor is expecting a re-application
+				if debuffKey == "exposearmor" and curses.armorMonitor[targetGuid] and curses.armorMonitor[targetGuid].expectingEA then
+					if CursiveEADebug then
+						DEFAULT_CHAT_FRAME:AddMessage("|cFF00FFFF[EA] Debuff temporarily gone but monitor active — keeping tracking|r")
+					end
+				else
+					curses.sharedDebuffGuids[debuffKey][targetGuid] = nil
+					-- v3.2: Reset armor monitor when EA actually falls off (no pending re-apply)
+					if debuffKey == "exposearmor" and curses.armorMonitor[targetGuid] then
+						curses.armorMonitor[targetGuid].expectingEA = false
+						-- Reset baseArmor so next cast captures fresh base (SuperWoW: GUID direct)
+						local freshArmor = UnitResistance(targetGuid, 0) or 0
+						curses.armorMonitor[targetGuid].prevArmor = freshArmor
+						curses.armorMonitor[targetGuid].baseArmor = freshArmor
+						if CursiveEADebug then
+							DEFAULT_CHAT_FRAME:AddMessage("|cFF00FFFF[EA REMOVED] baseArmor reset to "..freshArmor.."|r")
+						end
+					end
+				end
+				-- Also remove from guids display table
+				local spellData = nil
+				for sid, sd in pairs(debuffSpells) do
+					spellData = sd
+					break
+				end
+				if spellData and curses.guids[targetGuid] and curses.guids[targetGuid][spellData.name] then
+					-- Only remove if it was a shared debuff (not own)
+					if curses.guids[targetGuid][spellData.name].currentPlayer == false then
+						curses.guids[targetGuid][spellData.name] = nil
+					end
+				end
+			end
+		end
+	end
+end
+
+-- v3.2: Clean up expired shared debuffs from tracking tables
+function curses:CleanupSharedDebuffs()
+	local now = GetTime()
+
+	-- v3.2.1 FIX: Clean up stale procExpected flags (>2s old)
+	for guid, keys in pairs(curses.procExpected) do
+		local empty = true
+		for key, timestamp in pairs(keys) do
+			if (now - timestamp) > 2.0 then
+				keys[key] = nil
+			else
+				empty = false
+			end
+		end
+		if empty then
+			curses.procExpected[guid] = nil
+		end
+	end
+
+	for debuffKey, targets in pairs(curses.sharedDebuffGuids) do
+		local maxDuration = 0
+		-- Find the longest duration for this debuff type
+		if curses.sharedDebuffs[debuffKey] then
+			for _, spellData in pairs(curses.sharedDebuffs[debuffKey]) do
+				if spellData.duration and spellData.duration > maxDuration then
+					maxDuration = spellData.duration
+				end
+			end
+		end
+		-- Remove entries older than max duration + buffer
+		if maxDuration > 0 then
+			for targetGuid, data in pairs(targets) do
+				local appliedTime = data
+				-- v3.2: data can be a table {time=...} or a plain timestamp
+				if type(data) == "table" then
+					appliedTime = data.time or 0
+				end
+				if now - appliedTime > maxDuration + 5 then
+					targets[targetGuid] = nil
+				end
+			end
+		end
+	end
+
+	-- v3.2.1: Clean up armor cache alongside shared debuffs
+	curses:CleanupArmorCache()
+end
+
 Cursive:RegisterEvent("LEARNED_SPELL_IN_TAB", function()
 	-- reload curses in case spell slots changed
 	curses:LoadCurses()
+end)
+
+-- v3.2: Scan target debuffs when auras change (catches procs, direct casts, everything)
+Cursive:RegisterEvent("UNIT_AURA", function()
+	local a1 = arg1
+	if a1 == "target" then
+		local _, targetGuid = UnitExists("target")
+		if targetGuid then
+			curses:ScanTargetForSharedDebuffs(targetGuid)
+			-- v3.2: Check armor monitor for Expose Armor CP detection (aDF-style)
+			if curses.armorMonitor[targetGuid] and curses.armorMonitor[targetGuid].expectingEA then
+				curses:CheckArmorChangeForEA(targetGuid)
+			end
+		end
+	end
+end)
+
+-- v3.2: Also scan when target changes
+Cursive:RegisterEvent("PLAYER_TARGET_CHANGED", function()
+	local _, targetGuid = UnitExists("target")
+	if targetGuid then
+		curses:ScanTargetForSharedDebuffs(targetGuid)
+	end
 end)
 
 -- Finalize Dark Harvest reduction when channeling stops
@@ -358,6 +891,51 @@ local function StopChanneling()
 	curses.isChanneling = false
 end
 
+-- v3.2.1: Update armor cache for a GUID (called from ui.lua OnUpdate)
+function curses:UpdateArmorCache(guid)
+	if not UnitResistance then return end
+	if IsTestGuid(guid) then
+		-- v4.0: Fake armor data for Test Overlay
+		local entry = curses.armorCache[guid]
+		if not entry then
+			local fakeTotal = math.random(3000, 6000)
+			local fakeReduced = math.random(500, 2000)
+			local fakeLive = fakeTotal - fakeReduced
+			curses.armorCache[guid] = { live = fakeLive, total = fakeTotal }
+		end
+		return
+	end
+	local _, effective = UnitResistance(guid, 0)
+	if not effective then return end
+	effective = math.max(0, effective)
+
+	local entry = curses.armorCache[guid]
+	if not entry then
+		curses.armorCache[guid] = { live = effective, total = effective }
+	else
+		entry.live = effective
+		if effective > entry.total then
+			entry.total = effective
+		end
+	end
+end
+
+-- v3.2.1: Get armor data for a GUID (returns live, total, removed or nil)
+function curses:GetArmorData(guid)
+	local entry = curses.armorCache[guid]
+	if not entry then return nil end
+	return entry.live, entry.total, entry.live - entry.total
+end
+
+-- v3.2.1: Clean up armor cache for GUIDs we no longer track
+function curses:CleanupArmorCache()
+	for guid, _ in pairs(curses.armorCache) do
+		if not curses.guids[guid] then
+			curses.armorCache[guid] = nil
+		end
+	end
+end
+
 Cursive:RegisterEvent("SPELLCAST_CHANNEL_START", function()
 	curses.isChanneling = true
 end);
@@ -381,13 +959,121 @@ function curses:StartDarkHarvestTracking(targetGuid)
 end
 
 Cursive:RegisterEvent("UNIT_CASTEVENT", function(casterGuid, targetGuid, event, spellID, castDuration)
+	-- Debug: Log own cast/channel spell IDs (enable with /script CursiveCastDetect=true)
+	if CursiveCastDetect and (event == "CAST" or event == "CHANNEL") then
+		local _, pg = UnitExists("player")
+		if casterGuid == pg then
+			local trig = curses.sharedDebuffTriggerLookup[spellID] or curses.sharedDebuffSpellLookup[spellID] or "-"
+			DEFAULT_CHAT_FRAME:AddMessage("|cFFFFFF00[DETECT] "..event.." id="..tostring(spellID).." ="..trig.."|r")
+		end
+	end
+	-- Debug: Log castDuration for EA spells
+	if CursiveEACastLog and curses.sharedDebuffSpellLookup and curses.sharedDebuffSpellLookup[spellID] == "exposearmor" then
+		DEFAULT_CHAT_FRAME:AddMessage("|cFFFF00FF[EA EVENT] event="..tostring(event).." spellID="..tostring(spellID).." castDuration="..tostring(castDuration).."|r")
+	end
+	-- v3.2.1: Check channel spells for proc triggers (e.g. Drain Soul -> SV)
+	-- Channel events fire once at start — check for trigger spells immediately
+	if event == "CHANNEL" then
+		local triggerKey = curses.sharedDebuffTriggerLookup[spellID]
+		if triggerKey and Cursive.db.profile.shareddebuffs[triggerKey] then
+			if not curses.procExpected[targetGuid] then
+				curses.procExpected[targetGuid] = {}
+			end
+			curses.procExpected[targetGuid][triggerKey] = GetTime()
+
+			-- v3.2.1 FIX: Track own channel casts for border color detection
+			-- Without this, own Drain Soul -> SV proc would show as foreign (wrong border)
+			local _, playerGuid = UnitExists("player")
+			if casterGuid == playerGuid then
+				if not curses.playerOwnedCasts[targetGuid] then
+					curses.playerOwnedCasts[targetGuid] = {}
+				end
+				curses.playerOwnedCasts[targetGuid][triggerKey] = GetTime()
+			end
+
+			-- Schedule delayed scan (channel needs more time — SV procs on tick)
+			Cursive:ScheduleEvent(
+				"scanProc" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 1.5,
+				curses, triggerKey, targetGuid
+			)
+			-- Schedule additional scans for later ticks (Drain Soul ticks every ~3s)
+			Cursive:ScheduleEvent(
+				"scanProc2" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 4.0,
+				curses, triggerKey, targetGuid
+			)
+		end
+	end
+
 	-- immolate will fire both start and cast
 	if event == "CAST" then
 		local _, guid = UnitExists("player")
 		if casterGuid ~= guid then
-			-- check for faeriefire
-			if Cursive.db.profile.shareddebuffs.faeriefire and curses.sharedDebuffs.faeriefire[spellID] then
-				curses.sharedDebuffGuids.faeriefire[targetGuid] = GetTime()
+			-- v3.2: Check all shared debuffs via reverse lookup
+			local debuffKey = curses.sharedDebuffSpellLookup[spellID]
+			if debuffKey and Cursive.db.profile.shareddebuffs[debuffKey] then
+				local meta = curses.sharedDebuffMeta[debuffKey]
+				if not meta or not meta.isProc then
+					-- v3.2: Expose Armor — activate frame-by-frame armor monitor (aDF-style)
+					-- NOTE: UnitResistance() only accepts unit tokens, NOT GUIDs
+					if debuffKey == "exposearmor" and curses.exposeArmorPerCP[spellID] then
+						local mon = curses.armorMonitor[targetGuid]
+						if not mon then
+							mon = { prevArmor = 0, baseArmor = nil, expectingEA = false, eaSpellID = nil, monitorUntil = 0 }
+							curses.armorMonitor[targetGuid] = mon
+						end
+						-- SuperWoW: UnitResistance accepts GUIDs — capture armor directly
+						local armorNow = UnitResistance(targetGuid, 0) or 0
+						mon.prevArmor = armorNow
+						-- baseArmor = armor without any EA applied (set once, or when EA was removed)
+						if not mon.baseArmor then
+							mon.baseArmor = armorNow
+						end
+						if CursiveEADebug then
+							DEFAULT_CHAT_FRAME:AddMessage("|cFF00FFFF[EA CAST] prevArmor="..mon.prevArmor.." baseArmor="..tostring(mon.baseArmor).." spellID="..spellID.." target="..targetGuid.."|r")
+						end
+						mon.expectingEA = true
+						mon.eaSpellID = spellID
+						mon.monitorUntil = GetTime() + 2.0 -- monitor for 2 seconds max
+						-- Start OnUpdate poller for reliable armor change detection
+						curses:StartEAPoller()
+					end
+
+					-- Direct cast debuff: mark for scanning (texture will be picked up by UNIT_AURA scan)
+					-- v3.2.1: Remove exclusive debuff (e.g. Sunder replaces EA)
+					curses:RemoveExclusiveDebuff(debuffKey, targetGuid)
+					-- v3.2 FIX: Remove existing entry from guids so timer resets on re-cast
+					local recastSpellData = curses.sharedDebuffs[debuffKey][spellID]
+					if recastSpellData and curses.guids[targetGuid] then
+						curses.guids[targetGuid][recastSpellData.name] = nil
+					end
+					curses.sharedDebuffGuids[debuffKey][targetGuid] = {
+						time = GetTime(),
+						texture = nil, -- will be filled by ScanTargetForSharedDebuffs
+						stacks = 0,
+						spellID = spellID,
+					}
+					-- v3.2.1 FIX: Ensure target is registered in core.guids for rendering
+					-- Without this, mobs only tracked via UNIT_CASTEVENT may not appear in UI
+					Cursive.core.addGuid(targetGuid)
+				end
+			end
+
+			-- v3.2.1: Check if this cast triggers a proc-based debuff
+			local triggerKey = curses.sharedDebuffTriggerLookup[spellID]
+			if triggerKey and Cursive.db.profile.shareddebuffs[triggerKey] then
+				-- Mark proc expected for this target (used by ScanTargetForSharedDebuffs)
+				if not curses.procExpected[targetGuid] then
+					curses.procExpected[targetGuid] = {}
+				end
+				curses.procExpected[targetGuid][triggerKey] = GetTime()
+				-- Schedule a delayed scan for non-targeted mobs (backup)
+				Cursive:ScheduleEvent(
+					"scanProc" .. targetGuid .. triggerKey,
+					curses.ScanForProcDebuff, 0.5,
+					curses, triggerKey, targetGuid
+				)
 			end
 
 			return
@@ -399,6 +1085,33 @@ Cursive:RegisterEvent("UNIT_CASTEVENT", function(casterGuid, targetGuid, event, 
 			targetGuid = targetGuid,
 			castDuration = castDuration
 		}
+
+		-- v3.2.1: Track player's own shared debuff casts for border color detection
+		-- Check both direct debuff spells AND trigger spells (e.g. Shadow Bolt → Shadow Vulnerability)
+		local ownDebuffKey = (curses.sharedDebuffSpellLookup and curses.sharedDebuffSpellLookup[spellID])
+			or (curses.sharedDebuffTriggerLookup and curses.sharedDebuffTriggerLookup[spellID])
+		if ownDebuffKey then
+			if not curses.playerOwnedCasts[targetGuid] then
+				curses.playerOwnedCasts[targetGuid] = {}
+			end
+			curses.playerOwnedCasts[targetGuid][ownDebuffKey] = GetTime()
+		end
+
+		-- v3.2.1: Check proc triggers for own casts (e.g. own Shadow Bolt -> ISB proc)
+		local triggerKey = curses.sharedDebuffTriggerLookup[spellID]
+		if triggerKey and Cursive.db.profile.shareddebuffs[triggerKey] then
+			-- Mark proc expected for this target (used by ScanTargetForSharedDebuffs)
+			if not curses.procExpected[targetGuid] then
+				curses.procExpected[targetGuid] = {}
+			end
+			curses.procExpected[targetGuid][triggerKey] = GetTime()
+			-- Schedule a delayed scan for non-targeted mobs (backup)
+			Cursive:ScheduleEvent(
+				"scanProc" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 0.5,
+				curses, triggerKey, targetGuid
+			)
+		end
 
 		if curses.isDruid then
 			-- track ferocious bite cast time and target
@@ -505,7 +1218,7 @@ Cursive:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE",
 
 			local spellName, failedTarget
 			for _, test in pairs(spell_failed_tests) do
-				local _, _, foundSpell, foundTarget = string.find(message, test)
+				local _, _, foundSpell, foundTarget = strfind(message, test)
 				if foundSpell and foundTarget then
 					spellName = foundSpell
 					failedTarget = foundTarget
@@ -530,7 +1243,7 @@ Cursive:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE",
 				return
 			end
 
-			if curses.isShaman and string.find(message, molten_blast_test) then
+			if curses.isShaman and strfind(message, molten_blast_test) then
 				local flame_shock = L["flame shock"]
 				if curses:HasCurse(flame_shock, curses.lastMoltenBlastTargetGuid, 0) then
 					curses.guids[curses.lastMoltenBlastTargetGuid][flame_shock]["start"] = GetTime() -- reset start time to current time
@@ -541,7 +1254,7 @@ Cursive:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE",
 
 Cursive:RegisterEvent("CHAT_MSG_SPELL_AURA_GONE_OTHER", function(message)
 	-- check if spell that faded is relevant
-	local _, _, spellName, target = string.find(message, fades_test)
+	local _, _, spellName, target = strfind(message, fades_test)
 	if spellName and target then
 		spellName = curses:GetLowercaseSpellName(spellName)
 		if curses.trackedCurseNamesToTextures[spellName] then
@@ -574,11 +1287,15 @@ function curses:TimeRemaining(curseData)
 	
 	local remaining = curseData.duration - (GetTime() - curseData.start) - dhReduction
 	
-	if Cursive.db.profile.curseshowdecimals and remaining < 10 then
+	local profile = Cursive.db.profile
+	if remaining >= 100 then
+		-- Return raw float for minute display (2m+)
+		-- ui.lua uses ceil((remaining-30)/60) for midpoint transitions
+	elseif (profile.curseshowdecimals and remaining < 10) or (profile.coloreddecimalduration and remaining < 5 and remaining > 0) then
 		-- round to 1 decimal point
-		remaining = math.floor(remaining * 10) / 10
+		remaining = floor(remaining * 10) / 10
 	else
-		remaining = math.ceil(remaining)
+		remaining = ceil(remaining)
 	end
 
 	return remaining
@@ -652,7 +1369,7 @@ function curses:HasCurse(lowercaseSpellNameNoRank, targetGuid, minRemaining)
 	end
 
 	-- handle faerie fire special case
-	if curses.isDruid and string.find(lowercaseSpellNameNoRank, L["faerie fire"]) then
+	if curses.isDruid and strfind(lowercaseSpellNameNoRank, L["faerie fire"]) then
 		-- remove (feral) or (bear) from spell name
 		lowercaseSpellNameNoRank = L["faerie fire"]
 	end
@@ -676,14 +1393,50 @@ function curses:HasCurse(lowercaseSpellNameNoRank, targetGuid, minRemaining)
 	return nil
 end
 
+-- v3.2.1: Remove exclusive debuff from target (e.g. Sunder removes EA and vice versa)
+function curses:RemoveExclusiveDebuff(debuffKey, targetGuid)
+	local meta = curses.sharedDebuffMeta[debuffKey]
+	if not meta or not meta.exclusiveWith then return end
+
+	local exKey = meta.exclusiveWith
+	-- Remove from sharedDebuffGuids tracking
+	if curses.sharedDebuffGuids[exKey] then
+		curses.sharedDebuffGuids[exKey][targetGuid] = nil
+	end
+	-- Remove from display guids table
+	if curses.sharedDebuffs[exKey] and curses.guids[targetGuid] then
+		for _, spellData in pairs(curses.sharedDebuffs[exKey]) do
+			if spellData and spellData.name and curses.guids[targetGuid][spellData.name] then
+				curses.guids[targetGuid][spellData.name] = nil
+			end
+			break -- all spells share the same name
+		end
+	end
+end
+
 -- Apply shared curse from another player
-function curses:ApplySharedCurse(sharedDebuffKey, spellID, targetGuid, startTime)
-	local name = curses.sharedDebuffs[sharedDebuffKey][spellID].name
-	local rank = curses.sharedDebuffs[sharedDebuffKey][spellID].rank
-	local duration = curses.sharedDebuffs[sharedDebuffKey][spellID].duration
+-- v3.2: accepts optional texture and stacks from scan data
+function curses:ApplySharedCurse(sharedDebuffKey, spellID, targetGuid, startTime, scanTexture, scanStacks)
+	local spellData = curses.sharedDebuffs[sharedDebuffKey][spellID]
+	if not spellData then return end
+
+	-- v3.2.1: Remove exclusive debuff (e.g. Sunder replaces EA)
+	curses:RemoveExclusiveDebuff(sharedDebuffKey, targetGuid)
+
+	local name = spellData.name
+	local rank = spellData.rank
+	local duration = spellData.duration
 
 	if not curses.guids[targetGuid] then
 		curses.guids[targetGuid] = {}
+	end
+
+	-- v3.2.1 FIX: Resolve texture via SpellInfo if scan didn't provide one
+	if not scanTexture then
+		local _, _, siTex = SpellInfo(spellID)
+		if siTex then
+			scanTexture = siTex
+		end
 	end
 
 	curses.guids[targetGuid][name] = {
@@ -693,6 +1446,8 @@ function curses:ApplySharedCurse(sharedDebuffKey, spellID, targetGuid, startTime
 		spellID = spellID,
 		targetGuid = targetGuid,
 		currentPlayer = false,
+		sharedTexture = scanTexture, -- v3.2.1: texture from scan or SpellInfo fallback
+		sharedStacks = scanStacks or 0, -- v3.2: stack count from UnitDebuff scan
 	}
 end
 
@@ -770,6 +1525,12 @@ function curses:RemoveGuid(guid)
 	curses.resistSoundGuids[guid] = nil
 	curses.expiringSoundGuids[guid] = nil
 	curses.requestedExpiringSoundGuids[guid] = nil
+	curses.playerOwnedCasts[guid] = nil
+	-- v3.2: Clean up armor monitor
+	curses.armorMonitor[guid] = nil
+	-- v3.2.1: Clean up proc tracking
+	curses.procExpected[guid] = nil
+	curses.lastProcStacks[guid] = nil
 end
 
 Cursive.curses = curses

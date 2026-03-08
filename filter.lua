@@ -2,10 +2,26 @@ if not Cursive.superwow then
 	return
 end
 
+-- Local-cache frequently used globals
+local UnitCanAttack = UnitCanAttack
+local UnitIsPlayer = UnitIsPlayer
+local UnitAffectingCombat = UnitAffectingCombat
+local UnitIsDead = UnitIsDead
+local UnitIsEnemy = UnitIsEnemy
+local UnitExists = UnitExists
+local UnitName = UnitName
+local UnitClassification = UnitClassification
+local GetRaidTargetIndex = GetRaidTargetIndex
+local CheckInteractDistance = CheckInteractDistance
+local getn = table.getn
+local strfind = string.find
+local strlower = string.lower
+
 local filter = {
 }
 
 filter.attackable = function(unit)
+	if CursiveTestOverlay_UnitCanAttack and CursiveTestOverlay_UnitCanAttack(unit) then return true end
 	return UnitCanAttack("player", unit) and true or false
 end
 
@@ -18,6 +34,7 @@ filter.notplayer = function(unit)
 end
 
 filter.infight = function(unit)
+	if CursiveTestOverlay_IsTestGuid and CursiveTestOverlay_IsTestGuid(unit) then return true end
 	return UnitAffectingCombat(unit) and true or false
 end
 
@@ -26,6 +43,7 @@ filter.hascurse = function(unit)
 end
 
 filter.alive = function(unit)
+	if CursiveTestOverlay_IsTestGuid and CursiveTestOverlay_IsTestGuid(unit) then return true end
 	return not UnitIsDead(unit) and true or false
 end
 
@@ -39,6 +57,7 @@ filter.range = function(unit)
 end
 
 filter.icon = function(unit)
+	if CursiveTestOverlay_GetRaidTargetIndex and CursiveTestOverlay_GetRaidTargetIndex(unit) then return true end
 	return GetRaidTargetIndex(unit) and true or false
 end
 
@@ -57,7 +76,7 @@ filter.hostile = function(unit)
 end
 
 filter.notignored = function(unit)
-	if not Cursive.db.profile.ignorelist or table.getn(Cursive.db.profile.ignorelist) == 0 then
+	if not Cursive.db.profile.ignorelist or getn(Cursive.db.profile.ignorelist) == 0 then
 		return true
 	end
 
@@ -65,8 +84,9 @@ filter.notignored = function(unit)
 	if not unitName then
 		return true
 	end
+	local lowerName = strlower(unitName)
 	for _, str in ipairs(Cursive.db.profile.ignorelist) do
-		if string.find(string.lower(unitName), string.lower(str), nil, not Cursive.db.profile.ignorelistuseregex) then
+		if strfind(lowerName, strlower(str), nil, not Cursive.db.profile.ignorelistuseregex) then
 			return false
 		end
 	end
@@ -76,6 +96,11 @@ end
 Cursive.filter = filter
 
 function Cursive:ShouldDisplayGuid(guid)
+	-- v3.2.1: Test Overlay GUIDs always display
+	if CursiveTestOverlay_IsTestGuid and CursiveTestOverlay_IsTestGuid(guid) then
+		return true
+	end
+
 	-- never display units that don't exist
 	if not UnitExists(guid) then
 		return false
@@ -88,18 +113,31 @@ function Cursive:ShouldDisplayGuid(guid)
 
 	local _, targetGuid = UnitExists("target")
 
+	-- FILTER TARGET: only show current target, hide everything else
+	if Cursive.db.profile.filtertarget then
+		if targetGuid and targetGuid == guid then
+			return true
+		end
+		return false
+	end
+
 	-- always show target if attackable
 	if (targetGuid == guid) and filter.attackable(guid) then
 		return true
 	end
 
-	-- always show raid marks if attackable and not in combat or this guid is affecting combat
-	if filter.icon(guid) and filter.attackable(guid) and (not UnitAffectingCombat("player") or UnitAffectingCombat(guid)) then
+	-- v3.2.1: Raid-marked mobs ALWAYS shown (highest priority after target)
+	if filter.icon(guid) and filter.attackable(guid) then
 		return true
 	end
 
-	if Cursive.db.profile.filterincombat and not filter.infight(guid) then
-		return false
+	-- v3.2.1 FIX: Combat filter — show all mobs in combat
+	-- Note: UnitAffectingCombat can briefly return false for freshly-pulled mobs
+	-- Use both the unit's AND the player's combat state as fallback
+	if Cursive.db.profile.filterincombat then
+		if not filter.infight(guid) then
+			return false
+		end
 	end
 
 	if Cursive.db.profile.filterhascurse and not filter.hascurse(guid) then

@@ -1,11 +1,12 @@
 ## Interface: 11200
-## Title: [|CFF33AAFFSUPERWOW|R] Cursive 3.1.0
-## Title-zhCN: [|CFF33AAFFSUPERWOW|R] Cursive 3.1.0
-## Author: Kirchlive
-## Notes: Uses SuperWoW GUIDs to show units in combat and track curses
-## Notes-zhCN: 使用SuperWoW的GUID功能来显示战斗中的单位并监视诅咒等
-## Version: 3.1.0
+## Title: Cursive Raid v4.0
+## Title-zhCN: Cursive Raid v4.0
+## Author: Kirchlive, Teto
+## Notes: Raid debuff tracker with profiles, armor display, debuff order & multi-curse assist (SuperWoW required)
+## Notes-zhCN: 团队Debuff追踪器，支持配置文件、护甲显示、Debuff排序和多诅咒辅助（需要SuperWoW）
+## Version: 4.0
 ## SavedVariablesPerCharacter: CursiveDB
+## SavedVariables: CursiveProfiles
 ## X-Embeds: Ace2, FuBarPlugin-2.0, CompostLib, DewDropLib, TabletLib
 
 Libs\AceLibrary\AceLibrary.lua
@@ -27,6 +28,8 @@ Localization.lua
 global.lua
 utils.lua
 settings.lua
+profiles.lua
+defaultProfiles.lua
 core.lua
 spells\shared_debuffs.lua
 spells\druid.lua
@@ -39,6 +42,9 @@ spells\warlock.lua
 spells\warrior.lua
 curses.lua
 filter.lua
+CursiveTestOverlay.lua
 ui.lua
 commands.lua
+CursiveOptionsUI.lua
+profilesUI.lua
 CursiveTestFramework.lua

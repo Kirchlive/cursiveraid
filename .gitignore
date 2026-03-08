@@ -1,0 +1,5 @@
+# Dev artifacts
+tests/
+reference/
+IMPLEMENTATION_PLAN.md
+*.bak*

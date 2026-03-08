@@ -2,6 +2,11 @@ if not Cursive.superwow then
 	return
 end
 
+-- Local-cache frequently used globals
+local UnitExists = UnitExists
+local UnitIsDead = UnitIsDead
+local GetTime = GetTime
+
 -- add (1) for first stack of buffs/debuffs
 -- other addons already do this, avoid having to parse both formats
 AURAADDEDOTHERHELPFUL = "%s gains %s (1)."

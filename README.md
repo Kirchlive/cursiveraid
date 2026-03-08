@@ -1,229 +1,334 @@
-# Cursive
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/8ef4428f-9915-4149-b663-65ce0aa54115" alt="Cursive Raid v4.0" width="1768">
+</p>
 
-## Cursive Update for Turtle WoW v1.18.0
+<h1 align="center">Cursive Raid</h1>
 
-### Update v3.0.0
-- Dark Harvest **tick-time reduction** now calculated seamless for all DoTs
-- Duration for Corruption, Curse of Agony, Siphon Life, and Dark Harvest has been fixed
-- Eye of Dormant Corruption Trinket, 3 sec. longer duration correctly applied for Corruption and Shadow Word: Pain
-- UI improvements: Added white border for targeted unit
+<p align="center">
+  <b>The raid debuff tracker that Vanilla WoW never had.</b><br>
+  <i>Real-time debuff tracking, live armor monitoring, and full raid visibility — powered by SuperWoW.</i>
+</p>
 
-![image](https://i.imgur.com/RexUJmh.png)
-
-### Update v3.1.0
-
-**Eye of Dormant Corruption Trinket**
-- Fixed double-counting of trinket bonus when tooltip already includes the +3 seconds
-- Now correctly detects if the game has already applied the trinket duration bonus
-- Corruption and Shadow Word: Pain durations are now calculated correctly with trinket
-
-**Rapid Deterioration Hardcoded Values**
-- Set all Affliction DoT durations to correct base value
-- Warlock talent “Rapid Deterioration” is now calculated dynamically for DoTs
-
-**Rake Bleed Immunity**
-- Added creature type detection for bleed-immune mobs
-- Elementals, Undead, and Mechanical mobs no longer show wrong Rake bleed tracking
-
-**Rip Duration**
-- Verified: Rip duration correctly scales with combo points (8 + CP × 2)
+<p align="center">
+  <img src="https://img.shields.io/badge/WoW-1.12%20Vanilla-blue?style=flat-square" alt="WoW 1.12">
+  <img src="https://img.shields.io/badge/TurtleWoW-Compatible-green?style=flat-square" alt="TurtleWoW">
+  <img src="https://img.shields.io/badge/SuperWoW-Required-orange?style=flat-square" alt="SuperWoW">
+  <img src="https://img.shields.io/badge/Version-4.0-brightgreen?style=flat-square" alt="v4.0">
+  <img src="https://img.shields.io/badge/Lua-5.0-purple?style=flat-square" alt="Lua 5.0">
+</p>
 
 ---
 
-This is a update fork, credits to [pepopo978](https://github.com/pepopo978/Cursive)
+## What is Cursive Raid?
+
+In Vanilla WoW, you're blind. You can see your own debuffs, maybe your target's — but the full picture? Which mobs have Sunder Armor? Who's missing Curse of Elements? How much armor has that boss actually lost? Nobody knows. You guess. You hope. You ask in voice chat.
+
+**Cursive Raid changes that.**
+
+It tracks every debuff on every hostile unit in combat. Not just yours — everyone's. Duration timers, stack counts, who applied what, what's missing. All of it, all at once, on every mob. Things that were literally impossible in 1.12 before [SuperWoW](https://github.com/balakethelock/SuperWoW) opened the door.
+
+> Built for [TurtleWoW](https://turtle-wow.org/) and compatible vanilla 1.12 servers.
+> Requires [SuperWoW](https://github.com/balakethelock/SuperWoW).
 
 ---
 
-> [!IMPORTANT]
->
-> **This addon requires you to have [SuperWoW](https://github.com/balakethelock/SuperWoW) installed.**
->
-> It won't work without it. Really.
+## Features
 
-Cursive combines ShaguScan unit scanning with curse tracking similar to DotTimer and the ability to automatically curse
-targets similar to Decursive.
+### 🎯 Debuff Tracking
+- **GUID-based scanning** — Tracks all hostile units simultaneously, not just your target
+- **Shared Debuff Tracking** — See raid-wide debuffs from every class: Sunder Armor, Faerie Fire, Curse of Elements, Shadow Weaving, Winter's Chill, and 40+ more
+- **Duration timers** — Accurate countdown on every debuff, color-coded (white/yellow/classcolor/none)
+- **Stack tracking** — Sunder stacks, Shadow Vulnerability stacks, Expose Armor combo points
+- **Decimal precision** — Optional sub-second display in the last 3 seconds (white or red)
 
-### Recommended setup
+### 🛡️ Target Armor (v4.0)
+- **Live armor monitoring** — Reads actual armor values via `UnitResistance(GUID)` without targeting
+- **Reduction tracking** — See how much armor has been stripped by Sunder/EA/Faerie Fire in real time
+- **Color-coded display** — Green → Yellow → Red as armor drops
+- **Shield icon** — Configurable position (left/center/right) with armor value pairs (Live + Total, Live + Reduced, etc.)
 
-Move the Cursive label to the desired position on the screen. You can turn on 'Show Frame Background' in the settings to
-help with this. Once you have it where you want it, turn off 'Show Frame Background' and turn on 'Allow clickthrough'
-so that it doesn't block your clicks when it's not displaying mobs.
+### ⚔️ Expose Armor Detection
+The feature that made people say *"wait, that's possible in Vanilla?"*
+
+Traditional addons need the rogue to be your current target. Cursive Raid uses SuperWoW's `UnitResistance(GUID, 0)` to read armor by GUID — **no targeting required**. It detects the armor diff after cast and computes the exact combo point count.
+
+### 🔧 Debuff Order System
+- **Configurable priority** — Drag debuffs into the order you want: Front → Mid → Rear → Last → Swap Side
+- **Per-category positioning** — Own Class, Own Raid, Other Class, Other Raid — each with independent placement
+- **Missing debuff icons** — Grey desaturated icons show which expected debuffs aren't active yet
+- **Debuff borders** — Color-coded frames: green for your own, red for raid-critical, classcolor, or off
+
+### 📋 Profile System (v4.0)
+- **Save & Load** — Snapshot your entire configuration and switch between setups instantly
+- **12 default profiles** — Raid Leader, Warlock, Warrior Tank, Mage, Healer, Rogue, Hunter, Priest, Compact, Wide, PvP, Druid
+- **Export & Import** — Share profiles as text strings. Paste and go.
+- **Cross-character** — Profiles are global, not per-character
+- **Live refresh** — No `/reload` needed. Settings apply instantly.
+- **Minimap quickswitch** — Right-click the minimap icon to switch profiles on the fly
+
+### 🖥️ Options UI
+Six-tab configuration panel — everything is configurable, nothing needs manual editing:
+
+| Tab | What it controls |
+|-----|-----------------|
+| **General** | Enable/disable, move UI, test overlay, bar inversion, debuff borders, debuff order |
+| **Raid** | Shared debuff toggles, missing debuff display, raid debuff order grid |
+| **Class** | Per-class debuff selection — choose exactly which spells to track for each class |
+| **Display** | Scale, opacity, font sizes, icon sizes, bar dimensions, max targets, columns |
+| **Filter** | Target filtering: combat, hostile, attackable, player/NPC, range, raid icons |
+| **Profiles** | Save/load/delete profiles, export/import, default profile presets |
+
+### 🧪 Test Overlay
+Preview your UI without being in a raid. Generates 8 fake targets with realistic debuffs based on your class, complete with timers, stacks, health bars, and raid icons. Toggle with `/cursive test` or the checkbox in General settings.
+
+### 🔄 Multi-Curse / Multi-DoT
+Built-in macro system for Warlocks and other multi-DoT classes:
+- `/cursive multicurse` — Auto-pick the best target and cast
+- Priority modes: `HIGHEST_HP`, `LOWEST_HP`, `RAID_MARK`, `RAID_MARK_SQUARE`
+- Never double-curse a target again
+
+---
+
+## Installation
+
+1. Install **[SuperWoW](https://github.com/balakethelock/SuperWoW)** (required)
+2. Download the [latest release](../../releases)
+3. Extract the `Cursive` folder into your `Interface/AddOns/` directory
+4. Restart the WoW client
+
+```
+Interface/AddOns/Cursive/
+├── Cursive.toc
+├── profiles.lua          # Profile system
+├── defaultProfiles.lua   # 12 built-in presets
+├── profilesUI.lua        # Profiles tab UI
+├── curses.lua            # Debuff detection engine
+├── ui.lua                # Frame rendering
+├── CursiveOptionsUI.lua  # 6-tab options panel
+├── CursiveTestOverlay.lua
+├── settings.lua
+├── spells/               # Per-class spell definitions
+│   ├── shared_debuffs.lua
+│   ├── warlock.lua
+│   ├── warrior.lua
+│   └── ...
+└── Libs/                 # Ace2 framework
+```
+
+---
 
 ## Commands
 
-`/cursive` for commands, minimap icon to edit options.
+| Command | Description |
+|---------|-------------|
+| `/cursive` | Show help |
+| `/cursive options` | Open the options UI |
+| `/cursive test` | Toggle test overlay |
+| `/cursive profile list` | List saved profiles |
+| `/cursive profile save <name>` | Save current config as profile |
+| `/cursive profile load <name>` | Load a saved profile |
+| `/cursive profile delete <name>` | Delete a profile |
+| `/cursive curse <spell>\|<guid>\|<options>` | Cast if debuff not on target |
+| `/cursive multicurse <spell>\|<priority>\|<options>` | Auto-target and cast |
+| `/cursive target <spell>\|<priority>\|<options>` | Target by priority |
 
-### Curse
+---
 
-`/cursive curse <spellName:str>|<guid?:str>|<options?:comma separated str>`: Casts spell if not already on target/guid
+## Tracked Debuffs
 
-EXAMPLE: `/cursive curse Corruption|target` will attempt to cast Corruption on your target if it's not already on them
-and they aren't cc'ed.
+Cursive Raid tracks **40+ shared debuffs** across all classes:
 
-### Multicurse
+| Class | Debuffs |
+|-------|---------|
+| **Warrior** | Sunder Armor, Demoralizing Shout, Thunder Clap, Mortal Strike, Intimidating Shout |
+| **Warlock** | Curse of Recklessness, Curse of Elements, Curse of Shadow, Curse of Tongues, Curse of Weakness, Shadow Vulnerability, Banish, Enslave Demon, Fear, Howl of Terror, Seduction |
+| **Druid** | Faerie Fire, Demoralizing Roar, Hibernate |
+| **Mage** | Polymorph, Fire Vulnerability, Winter's Chill, Ignite |
+| **Rogue** | Expose Armor, Wound Poison, Sap |
+| **Hunter** | Hunter's Mark, Freezing Trap, Scatter Shot, Wyvern Sting |
+| **Paladin** | Judgement of Light, Judgement of Wisdom, Judgement of the Crusader, Hammer of Justice |
+| **Priest** | Shadow Weaving, Shackle Undead, Mind Control, Psychic Scream |
+| **Weapon Procs** | Thunderfury, Nightfall (Spell Vulnerability), Annihilator (Armor Shatter), Puncture Armor, Gift of Arthas |
 
-`/cursive multicurse <spellName:str>|<priority?:str>|<options?:comma separated str>`: Picks target based on priority and
-casts spell if not already on target and they aren't cc'ed.
+---
 
-EXAMPLE: `/cursive multicurse Corruption|HIGHEST_HP` will attempt to cast Corruption picking the target with the highest
-HP that doesn't already have it and will warn you if it does nothing.
+## How It Works
 
-### Target
+### The SuperWoW Advantage
 
-`/cursive target <spellName:str>|<priority?:str>|<options?:comma separated str>`: Targets unit based on priority if spell in range and not already on target
+Vanilla WoW's API is deliberately limited. You can only inspect your current target's debuffs. You can't read armor values by GUID. You can't detect casts from other players on arbitrary targets.
 
-EXAMPLE: `/cursive target Icicles|HIGHEST_HP` will target the enemy with the highest HP in range of the spell Icicles.
+[SuperWoW](https://github.com/balakethelock/SuperWoW) changes the rules:
 
-can also do it only if you don't have a target already:
-`/run if not UnitName("target") then SlashCmdList.CURSIVE("target Icicles|HIGHEST_HP") end`
+- `UnitDebuff(GUID, i)` — Read debuffs on any unit by GUID
+- `UnitResistance(GUID, 0)` — Read armor values without targeting
+- `UNIT_CASTEVENT` — Detect spell casts from all raid members with target info
+- `SpellInfo(spellID)` — Look up spell data by ID
 
-There is also 
-`/script targetGuid = Cursive:GetTarget("str", "str", {})`: Returns guid of the unit that would be targeted based on priority and options.
+Cursive Raid builds on all of these. The result is a level of raid awareness that wasn't possible before — and still isn't without SuperWoW.
 
-EXAMPLE: `/script targetGuid = Cursive:GetTarget("Corruption", "HIGHEST_HP", {})` will return guid of the enemy with the highest HP in range of the spell Corruption that doesn't already have Corruption.
+### Expose Armor Detection (Deep Dive)
 
-## Priority Options
+1. `UNIT_CASTEVENT` fires when a Rogue begins casting Expose Armor
+2. Cursive captures the target's current armor via `UnitResistance(GUID, 0)` as `baseArmor`
+3. An OnUpdate poller monitors the armor value for 2 seconds
+4. The armor difference maps directly to combo points via talent multiplier detection
+5. The exact stack count is displayed — no guessing, no targeting required
 
-- HIGHEST_HP - Target highest HP enemy without a curse first.
-- LOWEST_HP - Target lowest HP enemy without a curse first.
-- RAID_MARK - Target largest raid mark enemy without a curse first. Priority is as follows:
-    - Skull = 8 (1st priority)
-    - Cross = 7
-    - Square = 6
-    - Moon = 5
-    - Triangle = 4
-    - Diamond = 3
-    - Circle = 2
-    - Star = 1 (8th priority)
-    - No mark = 0
-- RAID_MARK_SQUARE - Target largest raid mark but ignore Skull and Cross. Priority is as follows:
-    - Square = 6 (1st priority)
-    - Moon = 5
-    - Triangle = 4
-    - Diamond = 3
-    - Circle = 2
-    - Star = 1
-    - No mark = 0
-    - Cross = -1
-    - Skull = -2 (9th priority)
-- INVERSE_RAID_MARK - Target lowest raid mark enemy without a curse first. (reverse of RAID_MARK)
+> See [docs/DEBUFF-TRACKING.md](docs/DEBUFF-TRACKING.md) for the full technical breakdown.
 
-- HIGHEST_HP_RAID_MARK - Target highest HP enemy with a raid (use raid mark priorities for identical hp), then highest
-  HP enemy without a mark.
-- HIGHEST_HP_RAID_MARK_SQUARE - Same as HIGHEST_HP_RAID_MARK but with RAID_MARK_SQUARE priority for marked enemies.
-- HIGHEST_HP_INVERSE_RAID_MARK - Same as HIGHEST_HP_RAID_MARK but with INVERSE_RAID_MARK priority for marked enemies.
+### Profile System Architecture
 
-## Command Options
+Profiles are stored independently from AceDB in a separate `SavedVariables: CursiveProfiles` table. This allows:
+- Cross-character sharing without AceDB's per-realm/per-class restrictions
+- Clean export/import via serialization (no LZW compression — plain readable format)
+- Safe sandbox import using `loadstring()` + `setfenv()` (pfUI-proven pattern)
+- Live application via `UpdateFramesFromConfig()` — no reload required
 
-All commands can take the following options separated by commas:
+---
 
-- `warnings` : "Display text warnings when a curse fails to cast.",
-- `resistsound` : "Play a sound when a curse is resisted.",
-- `expiringsound` : "Play a sound when a curse is about to expire.",
-- `allowooc` : "Allow out of combat targets to be multicursed. Would only consider using this solo to avoid potentially
-  griefing raids/dungeons by pulling unintended mobs.",
-- `priotarget` : "Always prioritize current target when choosing target for multicurse. Does not affect 'curse'
-  command.",
-- `ignoretarget` : "Ignore the current target when choosing target for multicurse. Does not affect 'curse' command.",
-- `playeronly` : "Only choose players and ignore npcs when choosing target for multicurse. Does not affect 'curse'
-  command.",
-- `minhp=<number>` : "Minimum HP for a target to be considered.",
-- `refreshtime=<number>` : "Time threshold at which to allow refreshing a curse. Default is 0 seconds.",
-- `name=<str>` : "Filter targets by name. Can be a partial match. If no match is found, the command will do nothing.",
-- `ignorespellid=<number>` : "Ignore targets with the specified spell id already on them. Useful for ignoring targets
-  that already have a shared debuff.",
-- `ignorespelltexture=<number>` : "Ignore targets with the specified spell texture already on them. Useful for ignoring
-  targets that already have a shared debuff.",
+## Documentation
 
-EXAMPLE: `/cursive multicurse Corruption|HIGHEST_HP|warnings,resistsound,expiringsound,minhp=10000,refreshtime=2`
+| Document | Description |
+|----------|-------------|
+| [Debuff Tracking](docs/DEBUFF-TRACKING.md) | SharedDebuffs internals, procExpected system, armor-diff EA detection |
+| [SuperWoW API](docs/SUPERWOW-API.md) | All SuperWoW APIs used and how |
+| [Test Overlay](docs/TEST-OVERLAY.md) | Fake GUID system, API wrappers, class-specific debuff injection |
 
-EXAMPLE:
-`/cursive multicurse Curse of Recklessness|RAID_MARK|name=Touched Warrior,ignorespelltexture=Spell_Shadow_UnholyStrength,resistsound,expiringsound`
+---
 
-## Macro examples
+## Version History
 
-You can just put multiple commands in a macro like this
-```
-/cursive curse Curse of Recklessness|target|refreshtime=1
-/cursive curse Corruption|target|refreshtime=3
-/cursive curse Siphon Life|target|refreshtime=1
-```
-but the game won't always execute them in the order you want
+### v4.0 — March 2026 *(current)*
 
-if you want more control of the order you can do something like
-```
-/script if not Cursive:Curse("Curse of Recklessness", "target", {refreshtime=1}) then if not Cursive:Curse("Corruption", "target", {refreshtime=3}) then Cursive:Curse("Siphon Life", "target", {refreshtime=1}) end end
-```
-This also works for Multicurse:
-```
-/script if not Cursive:Multicurse("Curse of Recklessness", "HIGHEST_HP", {refreshtime=1}) then if not Cursive:Multicurse("Corruption", "HIGHEST_HP", {refreshtime=3}) then Cursive:Multicurse("Siphon Life", "HIGHEST_HP", {refreshtime=1}) end end
-```
+The biggest update since the addon's creation. Complete UI overhaul, profile system, and dozens of polish items.
 
-Example with more options
-`/script Cursive:Multicurse("Curse of Recklessness", "HIGHEST_HP", {warnings=1,resistsound=1,expiringsound=1,refreshtime=2})`
+**New Features:**
+- 📋 Full profile system — save, load, delete, rename, export, import
+- 📋 12 default profiles for every class and playstyle
+- 📋 Minimap right-click profile quickswitch
+- 🛡️ Target Armor display — live armor values with color coding and shield icon
+- 🎨 Debuff Order rewrite — Swap Side, configurable per-category positioning
+- 🧪 Test Overlay fixes — full API wrapper coverage (UnitIsPlayer, UnitResistance)
+- ⚙️ Decimal Duration dropdown (None/White/Red)
+- ⚙️ Duration Timer + Stack Counter "None" option (hide completely)
 
-All cursive commands will return true only if it attempted to cast or it found a target.
+**UI Polish:**
+- 6-tab options panel (new Profiles tab)
+- Debuff border system with per-category color coding
+- Slider limits refined (Max Debuffs 18, Icon Size 30)
+- Armor Build dropdown (Live + Total, Live + Reduced, etc.)
+- Pixel-perfect spacing across all panels
+- No more `/reload` — everything applies live
 
-## Shared Debuffs
+### v3.2.1-beta — February 2026
 
-Shared debuffs applied by other players will appear greyed out on targets.
+- Expose Armor CP Detection (targetless, via armor-diff)
+- Shadow Vulnerability complete fix
+- Raid Debuff Order UI with icon grid
+- Test Overlay system
+- Show Missing Debuffs
+- Winter's Chill fix
+- Thunderfury/Nightfall/Annihilator timer fix
 
-Currently only Faerie Fire is supported as I felt it warranted special handling.  It works by looking for other players casting faerie fire and then checking if the mob has the debuff, so if someone refreshes faerie fire and gets resisted it will incorrectly restart the timer.  However, it should still correctly remove faerie fire if it falls off that target.  I didn't want to impact performance to handle this edge case.
+### v3.2.0 — February 2026
 
-## Accessing curse data in other addons
+- Shared Debuff Tracking system
+- Debuff Border Colors
+- Complete Options UI (5 tabs)
+- Fork of Kirchlive/Cursive v3.1
 
-Cursive data can be accessed in other addons 
+### v3.0–v3.1
 
-You can check if curse is active with
-`Cursive.curses:HasCurse(lowercaseSpellNameNoRank, targetGuid, minRemaining)`
+- Original updates by [Kirchlive](https://github.com/Kirchlive): Dark Harvest, trinket fixes, UI improvements
 
-You can get raw curse data using 
-`Cursive.curses:GetCurseData(spellName, guid)`
+### Pre-v3.0
 
-Curse data is a table with the following structure:
-```
-{
-		rank = int,
-		duration = float,
-		start = float,
-		spellID = int,
-		targetGuid = int,
-		currentPlayer = bool,
-}
-```
+- Original [Cursive](https://github.com/pepopo978/Cursive) by pepopo978: ShaguScan-based curse tracking
 
-Here's an example that gets the time left on Corruption on the current target:
-```
-/run _, guid = UnitExists("target"); local data = Cursive.curses:GetCurseData("Corruption", guid); print(Cursive.curses:TimeRemaining(data))
-```
+---
 
-## Important info
+## Known Limitations
 
-If you have my latest nampower, it will use the SpellInRange function from that to provide improved range checking.
+- **SuperWoW is required** — There is no fallback mode. Without SuperWoW, the addon will not load.
+- **WoW 1.12 only** — No TBC, Wrath, or retail support.
+- **Debuff slot cap** — Vanilla WoW has a 16-debuff cap per target (64 on TurtleWoW with SuperWoW). Cursive tracks what's visible.
+- **Proc debuff timing** — Weapon procs (Thunderfury, Nightfall) rely on `UNIT_CASTEVENT` timing. Slight delays are possible.
+- **External addon conflicts** — Some addons (e.g., SuperCleveRoidMacros) may log errors when Test Overlay is active. This is harmless and caused by those addons trying to resolve fake GUIDs.
 
-Otherwise, all commands will prioritize targets within 28 yards of you first to have a better chance of being in range.
+---
 
-All commands will ignore targets with the following CCs on them:
+## FAQ
 
-- Sleep
-- Entangling Roots
-- Shackle Undead
-- Polymorph
-- Turn Undead
-- Blind
-- Sap
-- Gouge
-- Freezing Trap
-- Banish
+**Does this work on TurtleWoW?**
+Yes. Built for TurtleWoW, tested on TurtleWoW. SuperWoW is supported and widely used on the server.
 
-Multicurse will only ever target enemies that are already in combat (except if you target a mob directly first) to
-prevent pulling things you didn't intend like marked patrols.
+**Do I need SuperWoW?**
+Yes. SuperWoW provides the GUID-based APIs that make shared debuff tracking possible. Without it, Cursive Raid cannot function.
 
-Mobs with raid marks will be displayed first.
+**Will this get me banned?**
+SuperWoW is de facto supported on TurtleWoW — core developers maintain addons that depend on it. Cursive Raid uses only SuperWoW's Lua API extensions, nothing external.
 
-Mobs will the top 3 max hps will always display next. I may make this configurable in the future.
+**Can I use this in 5-man dungeons?**
+Absolutely. It works in any combat scenario — raids, dungeons, world PvP, solo farming.
 
-There is an option "always show current target" that will display your current target in the last slot if they aren't already being displayed.
+**How do I share my profile with guildmates?**
+Open the Profiles tab → select your profile → click Export → copy the text string → share it. They paste it into their Import field and click Import.
 
-You can ignore mobs based on their unit name using the ignored mob list filter.  It is comma separated and you need to press enter to get it to save.  For example can do:
-`whelp,scarab` to ignore all mobs with those strings in their name.
+**The addon folder is called "Cursive" but the addon is "Cursive Raid"?**
+Yes. The internal addon name stays `Cursive` for backward compatibility with AceDB SavedVariables. The display name is Cursive Raid.
+
+---
+
+## Credits
+
+| Who | What |
+|-----|------|
+| **[pepopo978](https://github.com/pepopo978/Cursive)** | Original Cursive addon — ShaguScan + curse tracking foundation |
+| **[Kirchlive](https://github.com/Kirchlive)** | v3.0–v3.1 (Dark Harvest, trinket fixes, UI work) and v3.2–v4.0 architecture & design |
+| **Teto** | v3.2–v4.0 implementation — shared debuffs, EA detection, profile system, options UI, test overlay |
+| **[SuperWoW](https://github.com/balakethelock/SuperWoW)** | The mod that made all of this possible |
+| **[pfUI](https://github.com/shagu/pfUI)** | Inspiration for dropdown patterns, profile serialization, and UI design philosophy |
+
+---
+
+## Dev Notes — From the Trenches
+
+> *"We just implemented something for Vanilla WoW that was previously declared impossible."*
+> — On targetless Expose Armor detection via `UnitResistance(GUID)`
+
+> *"AceDB-2.0 silently deletes your config values on logout if they match the defaults. The fix? Set your defaults to a value that can never be real."*
+> — The sentinel trick that saved debuff order persistence
+
+> *"The apostrophe in Winter's Chill broke the entire debuff categorization. One character."*
+> — `"winter'schill"` ≠ `"winterschill"`
+
+> *"Fake GUIDs in WoW are like fake IDs at a bar — every bouncer (addon) will try to check them."*
+> — On why Test Overlay needs 10+ API wrappers
+
+> *"Lua 5.0 has a 32 upvalue limit per function. We hit it building the Raid Order UI."*
+> — Solved with `do...end` scope blocks. Classic vanilla pitfall.
+
+> *"No ReloadUI. Everything applies live. That's the standard now."*
+> — On the profile system's instant-apply architecture
+
+---
+
+## Contributing
+
+Found a bug? Have a feature idea? Open an [issue](../../issues).
+
+Want to add debuff definitions for a new spell? Check `spells/shared_debuffs.lua` — the format is straightforward.
+
+---
+
+## License
+
+Same license as the original Cursive project. See upstream repositories for details.
+
+---
+
+<p align="center">
+  <i>Built with obsession, tested in raids, polished pixel by pixel.</i><br>
+  <b>Kirchlive & Teto — 2026</b> 💠
+</p>

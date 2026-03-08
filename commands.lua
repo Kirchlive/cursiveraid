@@ -16,6 +16,8 @@ local commandOptions = {
 	name = L["Filter targets by name. Can be a partial match.  If no match is found, the command will do nothing."],
 	ignorespellid = L["Ignore targets with the specified spell id already on them. Useful for ignoring targets that already have a shared debuff."],
 	ignorespelltexture = L["Ignore targets with the specified spell texture already on them. Useful for ignoring targets that already have a shared debuff."],
+	cooldown = L["Check spell cooldown before casting. Returns false if spell is on cooldown, allowing macro fallthrough to the next action."],
+	harvestrefresh = L["Time threshold for refreshing DoTs when Dark Harvest is off cooldown. Ensures DoTs have enough duration before channeling Dark Harvest. Example: harvestrefresh=6"],
 }
 
 local commands = {
@@ -61,6 +63,11 @@ local function parseOptions(optionsStr)
 				local _, _, refreshTime = string.find(optionsStr, "refreshtime=(%d+)")
 				if refreshTime then
 					options["refreshtime"] = tonumber(refreshTime)
+				end
+			elseif option == "harvestrefresh" then
+				local _, _, harvestRefresh = string.find(optionsStr, "harvestrefresh=(%d+)")
+				if harvestRefresh then
+					options["harvestrefresh"] = tonumber(harvestRefresh)
 				end
 			elseif option == "name" then
 				local _, _, name = string.find(optionsStr, "name=([%w%s]+)")
@@ -365,7 +372,7 @@ local function pickTarget(selectedPriority, lowercaseSpellNameNoRank, checkRange
 
 	local minHp = options["minhp"]
 	local ignoreInFight = options["allowooc"]
-	local refreshTime = options["refreshtime"]
+	local refreshTime = getEffectiveRefreshTime(options)
 
 	local _, currentTargetGuid = UnitExists("target")
 
@@ -472,6 +479,55 @@ local function pickTarget(selectedPriority, lowercaseSpellNameNoRank, checkRange
 	return targetedGuid
 end
 
+-- Check if a spell is on cooldown by searching the spellbook via Cursive's tracked spell slots
+-- Returns true if the spell is currently on cooldown, false if ready to cast
+local function isSpellOnCooldown(lowercaseSpellNameNoRank)
+	local slots = Cursive.curses.trackedCurseNameRanksToSpellSlots
+	if not slots then return false end
+
+	-- Find any spellbook slot matching this spell name (iterate to find highest rank)
+	local bestSlot = nil
+	for nameRank, slot in pairs(slots) do
+		if string.find(nameRank, lowercaseSpellNameNoRank, 1, true) then
+			if not bestSlot or slot > bestSlot then
+				bestSlot = slot
+			end
+		end
+	end
+
+	if not bestSlot then return false end
+
+	local start, duration, enabled = GetSpellCooldown(bestSlot, BOOKTYPE_SPELL)
+	if start and start > 0 and duration and duration > 1.5 then
+		-- On cooldown (duration > 1.5 filters out GCD)
+		return true
+	end
+
+	return false
+end
+
+-- Check if Dark Harvest is off cooldown and ready to cast
+-- Used by harvestrefresh option to dynamically increase DoT refresh threshold
+local function isDarkHarvestReady()
+	-- Only relevant for warlocks
+	if not Cursive.curses.isWarlock then return false end
+	-- If currently channeling DH, no need for early refresh
+	if Cursive.curses.isChanneling then return false end
+	-- Check if DH spell is off cooldown
+	return not isSpellOnCooldown(L["dark harvest"])
+end
+
+-- Determine effective refresh time considering harvestrefresh option
+-- When Dark Harvest is off cooldown, uses the higher harvestrefresh threshold
+-- so DoTs get refreshed before DH is channeled
+local function getEffectiveRefreshTime(options)
+	local refreshTime = options["refreshtime"]
+	if options["harvestrefresh"] and isDarkHarvestReady() then
+		return options["harvestrefresh"]
+	end
+	return refreshTime
+end
+
 local function castSpellWithOptions(spellName, lowercaseSpellNameNoRank, targetedGuid, options)
 	if options["resistsound"] then
 		Cursive.curses:EnableResistSound(targetedGuid)
@@ -512,7 +568,14 @@ function Cursive:Curse(spellName, targetedGuid, options)
 	-- remove (Rank x) from spellName if it exists
 	local lowercaseSpellNameNoRank = Cursive.utils.GetLowercaseSpellNameNoRank(spellName)
 
-	if targetedGuid and not Cursive.curses:HasCurse(lowercaseSpellNameNoRank, targetedGuid, options["refreshtime"]) and not isMobCrowdControlled(targetedGuid) then
+	-- harvestrefresh: use higher refresh threshold when Dark Harvest is ready
+	local effectiveRefreshTime = getEffectiveRefreshTime(options)
+
+	if targetedGuid and not Cursive.curses:HasCurse(lowercaseSpellNameNoRank, targetedGuid, effectiveRefreshTime) and not isMobCrowdControlled(targetedGuid) then
+		-- cooldown option: return false if spell is on cooldown so macro can fall through
+		if options["cooldown"] and isSpellOnCooldown(lowercaseSpellNameNoRank) then
+			return false
+		end
 		castSpellWithOptions(string.lower(spellName), lowercaseSpellNameNoRank, targetedGuid, options)
 		return true
 	elseif options["warnings"] then
@@ -545,6 +608,14 @@ local function getSpellTarget(spellName, priority, options)
 end
 
 function Cursive:Multicurse(spellName, priority, options)
+	-- cooldown option: return false early if spell is on cooldown
+	if options["cooldown"] then
+		local lowercaseCheck = Cursive.utils.GetLowercaseSpellNameNoRank(spellName)
+		if isSpellOnCooldown(lowercaseCheck) then
+			return false
+		end
+	end
+
 	local targetedGuid = getSpellTarget(spellName, priority, options)
 	if targetedGuid then
 		local lowercaseSpellNameNoRank = Cursive.utils.GetLowercaseSpellNameNoRank(spellName)
