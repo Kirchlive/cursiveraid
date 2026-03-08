@@ -991,16 +991,32 @@ Cursive:RegisterEvent("UNIT_CASTEVENT", function(casterGuid, targetGuid, event, 
 				curses.playerOwnedCasts[targetGuid][triggerKey] = GetTime()
 			end
 
-			-- Schedule delayed scan (channel needs more time — SV procs on tick)
+			-- Schedule delayed scans for each possible channel tick
+			-- Mind Flay ticks at ~1s, ~2s, ~3s; Drain Soul ticks every ~3s
+			-- Each tick can proc Shadow Weaving stacks
 			Cursive:ScheduleEvent(
-				"scanProc" .. targetGuid .. triggerKey,
+				"scanProc1" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 0.5,
+				curses, triggerKey, targetGuid
+			)
+			Cursive:ScheduleEvent(
+				"scanProc2" .. targetGuid .. triggerKey,
 				curses.ScanForProcDebuff, 1.5,
 				curses, triggerKey, targetGuid
 			)
-			-- Schedule additional scans for later ticks (Drain Soul ticks every ~3s)
 			Cursive:ScheduleEvent(
-				"scanProc2" .. targetGuid .. triggerKey,
-				curses.ScanForProcDebuff, 4.0,
+				"scanProc3" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 2.5,
+				curses, triggerKey, targetGuid
+			)
+			Cursive:ScheduleEvent(
+				"scanProc4" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 3.5,
+				curses, triggerKey, targetGuid
+			)
+			Cursive:ScheduleEvent(
+				"scanProc5" .. targetGuid .. triggerKey,
+				curses.ScanForProcDebuff, 4.5,
 				curses, triggerKey, targetGuid
 			)
 		end
