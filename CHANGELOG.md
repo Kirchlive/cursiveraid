@@ -1,5 +1,27 @@
 # Changelog
 
+## v4.0.1 — 2026-03-11
+
+Bugfixes, new display features, addon rename, and updated default profiles.
+
+### Bug Fixes
+- **Shadow Weaving: Mind Flay tracking** — Consecutive Mind Flay casts were cancelling each other's delayed scan events because they shared the same `ScheduleEvent` ID. Each scan now uses a unique ID via `GetTime()`.
+- **Shadow Weaving: non-targeted mobs** — Shadow Weaving stacks were only updating on your current target because `ScanTargetForSharedDebuffs` was only called on `UNIT_AURA "target"`. Now `ScanForProcDebuff` triggers a full shared debuff scan immediately after queuing a new proc debuff, enabling stack/timer updates on all mobs.
+- **Multicurse / isDarkHarvestReady nil error** — The `getEffectiveRefreshTime` function was moved above `pickTarget` (for multicurse to work) but its dependencies `isSpellOnCooldown` and `isDarkHarvestReady` were still defined later. Lua 5.0 requires top-down declaration order. All three functions are now in correct order.
+- **Consecutive CAST proc scan cancellation** — The unique scan ID fix was only applied to CHANNEL events (Mind Flay). Now also applied to all CAST trigger events (Mind Blast, Shadow Bolt, etc.) for both foreign and own casts.
+
+### New Features
+- **Debuff Icon Spacing** — New slider (0–10, default 1) under Display > Layout to control the pixel gap between debuff icons. Previously hardcoded to 2.
+- **Health Bar Spacing** — Renamed from "Spacing" for clarity.
+- **Target Armor Position** — New slider (-30 to +30, default 0) under Display > Target Armor for horizontal offset of the armor display relative to its anchor point.
+
+### Changes
+- **Addon folder renamed: `Cursive` → `Cursive-Raid`** — TOC file renamed to match folder name (`Cursive-Raid.toc`). Users upgrading from v4.0 need to copy their SavedVariables files from `Cursive.lua` to `Cursive-Raid.lua` in both account and character WTF folders.
+- **7 new default profiles** replacing the previous 12 class-specific ones: Default, Pro Full, Raid Debuff Tracker, Raid Live Armor View, Spy Enemy Player, Targeted Only Own Debuffs, Track All Near Friendly Player. Feature-focused rather than class-focused to inspire creative use.
+- **Version bumped** to 4.0.1 in TOC, Options UI, and settings.
+
+---
+
 ## v4.0 — 2026-03-08
 
 The biggest update since the addon's creation. Complete UI overhaul, full profile system, and dozens of polish items across every aspect of the addon.

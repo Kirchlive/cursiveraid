@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/WoW-1.12%20Vanilla-blue?style=flat-square" alt="WoW 1.12">
   <img src="https://img.shields.io/badge/TurtleWoW-Compatible-green?style=flat-square" alt="TurtleWoW">
   <img src="https://img.shields.io/badge/SuperWoW-Required-orange?style=flat-square" alt="SuperWoW">
-  <img src="https://img.shields.io/badge/Version-4.0-brightgreen?style=flat-square" alt="v4.0">
+  <img src="https://img.shields.io/badge/Version-4.0.1-brightgreen?style=flat-square" alt="v4.0.1">
   <img src="https://img.shields.io/badge/Lua-5.0-purple?style=flat-square" alt="Lua 5.0">
 </p>
 
@@ -60,7 +60,7 @@ Traditional addons need the rogue to be your current target. Cursive Raid uses S
 
 ### 📋 Profile System (v4.0)
 - **Save & Load** — Snapshot your entire configuration and switch between setups instantly
-- **12 default profiles** — Raid Leader, Warlock, Warrior Tank, Mage, Healer, Rogue, Hunter, Priest, Compact, Wide, PvP, Druid
+- **7 default profiles** — Default, Pro Full, Raid Debuff Tracker, Raid Live Armor View, Spy Enemy Player, Targeted Only Own Debuffs, Track All Near Friendly Player
 - **Export & Import** — Share profiles as text strings. Paste and go.
 - **Cross-character** — Profiles are global, not per-character
 - **Live refresh** — No `/reload` needed. Settings apply instantly.
@@ -93,14 +93,20 @@ Built-in macro system for Warlocks and other multi-DoT classes:
 
 1. Install **[SuperWoW](https://github.com/balakethelock/SuperWoW)** (required)
 2. Download the [latest release](../../releases)
-3. Extract the `Cursive` folder into your `Interface/AddOns/` directory
+3. Extract the `Cursive-Raid` folder into your `Interface/AddOns/` directory
 4. Restart the WoW client
 
+> **Upgrading from v4.0?** The addon folder has been renamed from `Cursive` to `Cursive-Raid`. Copy your SavedVariables files:
+> - `WTF/Account/<name>/SavedVariables/Cursive.lua` → `Cursive-Raid.lua`
+> - `WTF/Account/<name>/<realm>/<char>/SavedVariables/Cursive.lua` → `Cursive-Raid.lua`
+>
+> Then remove or disable the old `Cursive` folder to avoid conflicts.
+
 ```
-Interface/AddOns/Cursive/
-├── Cursive.toc
+Interface/AddOns/Cursive-Raid/
+├── Cursive-Raid.toc
 ├── profiles.lua          # Profile system
-├── defaultProfiles.lua   # 12 built-in presets
+├── defaultProfiles.lua   # 7 built-in presets
 ├── profilesUI.lua        # Profiles tab UI
 ├── curses.lua            # Debuff detection engine
 ├── ui.lua                # Frame rendering
@@ -312,13 +318,33 @@ local guid = Cursive:GetTarget("Corruption", "HIGHEST_HP", {})
 
 ## Version History
 
-### v4.0 — March 2026 *(current)*
+### v4.0.1 — March 2026 *(current)*
+
+Bugfixes, new features, and addon folder rename.
+
+**Fixes:**
+- 🐛 **Shadow Weaving tracking** — Fixed consecutive Mind Flay casts cancelling each other's scan events (unique scan IDs per cast)
+- 🐛 **Shadow Weaving on non-targeted mobs** — Now correctly tracks and updates stacks on all mobs, not just your current target
+- 🐛 **Multicurse broken** — Fixed `getEffectiveRefreshTime` forward declaration error (Lua 5.0 scope issue)
+- 🐛 **isDarkHarvestReady nil error** — Moved `isSpellOnCooldown` and `isDarkHarvestReady` before `getEffectiveRefreshTime` to satisfy Lua 5.0's top-down function resolution
+- 🐛 **Consecutive proc scan cancellation** — All CAST and CHANNEL trigger scan events now use unique IDs via `GetTime()` to prevent overwriting
+
+**New Features:**
+- ⚙️ **Debuff Icon Spacing** — New slider (0–10, default 1) to control gap between debuff icons
+- ⚙️ **Health Bar Spacing** — Renamed from "Spacing" for clarity
+- ⚙️ **Target Armor Position** — New slider (-30 to +30) for horizontal offset of the armor display
+
+**Changes:**
+- 📁 **Addon folder renamed** — `Cursive` → `Cursive-Raid` (TOC file now matches folder name)
+- 📋 **7 new default profiles** — Default, Pro Full, Raid Debuff Tracker, Raid Live Armor View, Spy Enemy Player, Targeted Only Own Debuffs, Track All Near Friendly Player (replaces 12 class-specific profiles)
+
+### v4.0 — March 2026
 
 The biggest update since the addon's creation. Complete UI overhaul, profile system, and dozens of polish items.
 
 **New Features:**
 - 📋 Full profile system — save, load, delete, rename, export, import
-- 📋 12 default profiles for every class and playstyle
+- 📋 Default profiles for every class and playstyle
 - 📋 Minimap right-click profile quickswitch
 - 🛡️ Target Armor display — live armor values with color coding and shield icon
 - 🎨 Debuff Order rewrite — Swap Side, configurable per-category positioning
@@ -388,8 +414,8 @@ Absolutely. It works in any combat scenario — raids, dungeons, world PvP, solo
 **How do I share my profile with guildmates?**
 Open the Profiles tab → select your profile → click Export → copy the text string → share it. They paste it into their Import field and click Import.
 
-**The addon folder is called "Cursive" but the addon is "Cursive Raid"?**
-Yes. The internal addon name stays `Cursive` for backward compatibility with AceDB SavedVariables. The display name is Cursive Raid.
+**The addon folder changed from "Cursive" to "Cursive-Raid"?**
+Yes, as of v4.0.1 the folder name matches the addon name. You'll need to copy your SavedVariables files (see Installation above). The internal Lua global stays `Cursive` for AceDB compatibility.
 
 ---
 
