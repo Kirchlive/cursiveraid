@@ -484,6 +484,10 @@ function curses.ScanForProcDebuff(self, debuffKey, targetGuid)
 			}
 			-- v3.2.1 FIX: Ensure target is in core.guids for rendering
 			Cursive.core.addGuid(targetGuid)
+			-- v4.0.1 FIX: Run full shared debuff scan for this GUID
+			-- Without this, Shadow Weaving on non-targeted mobs only shows initial state
+			-- ScanTargetForSharedDebuffs updates stacks/timer in curses.guids directly
+			curses:ScanTargetForSharedDebuffs(targetGuid)
 			if CursiveSVDebug then
 				DEFAULT_CHAT_FRAME:AddMessage("|cFF00FF00[SV] ScanProc NEW: "..tostring(procSpellData and procSpellData.name).." queued|r")
 			end
@@ -1071,8 +1075,10 @@ Cursive:RegisterEvent("UNIT_CASTEVENT", function(casterGuid, targetGuid, event, 
 				end
 				curses.procExpected[targetGuid][triggerKey] = GetTime()
 				-- Schedule a delayed scan for non-targeted mobs (backup)
+				-- Use unique event name so consecutive casts don't cancel each other
+				local scanID = targetGuid .. triggerKey .. GetTime()
 				Cursive:ScheduleEvent(
-					"scanProc" .. targetGuid .. triggerKey,
+					"scanProc" .. scanID,
 					curses.ScanForProcDebuff, 0.5,
 					curses, triggerKey, targetGuid
 				)
@@ -1108,8 +1114,10 @@ Cursive:RegisterEvent("UNIT_CASTEVENT", function(casterGuid, targetGuid, event, 
 			end
 			curses.procExpected[targetGuid][triggerKey] = GetTime()
 			-- Schedule a delayed scan for non-targeted mobs (backup)
+			-- Use unique event name so consecutive casts don't cancel each other
+			local scanID = targetGuid .. triggerKey .. GetTime()
 			Cursive:ScheduleEvent(
-				"scanProc" .. targetGuid .. triggerKey,
+				"scanProc" .. scanID,
 				curses.ScanForProcDebuff, 0.5,
 				curses, triggerKey, targetGuid
 			)
